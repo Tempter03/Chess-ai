@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Chess, Move } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
-import type { Arrow } from 'react-chessboard/dist/chessboard/types';
+import type { Arrow, PromotionPieceOption, Square } from 'react-chessboard/dist/chessboard/types';
 import { useStockfishEngine } from './hooks/useStockfishEngine.ts';
 import { MoveList } from './components/MoveList.tsx';
 
 type BoardOrientation = 'white' | 'black';
+type PromotionState = { from: Square; to: Square; color: 'w' | 'b' } | null;
 
 const BOARD_SIZES = {
   desktop: 520,
@@ -20,6 +21,7 @@ export default function App() {
   const [orientation, setOrientation] = useState<BoardOrientation>('white');
   const [lastMoveSquares, setLastMoveSquares] = useState<{ from: string; to: string } | null>(null);
   const [statusMessage, setStatusMessage] = useState('Играйте как обычно и дублируйте ходы на доске.');
+  const [promotionState, setPromotionState] = useState<PromotionState>(null);
 
   const history = useMemo(() => chessRef.current.history({ verbose: true }) as Move[], [fen]);
   const { analyze, suggestions, isReady, error, depth, lastUpdated } = useStockfishEngine();
@@ -30,6 +32,11 @@ export default function App() {
 
   const handlePieceDrop = useCallback(
     (sourceSquare: string, targetSquare: string, piece: string) => {
+      if (requiresPromotion(piece, targetSquare)) {
+        setPromotionState({ from: sourceSquare as Square, to: targetSquare as Square, color: piece[0] as 'w' | 'b' });
+        return false;
+      }
+
       const move = chessRef.current.move({
         from: sourceSquare,
         to: targetSquare,
@@ -47,6 +54,40 @@ export default function App() {
     },
     [],
   );
+
+  const handlePromotionPieceSelect = useCallback(
+    (piece?: PromotionPieceOption) => {
+      if (!promotionState || !piece) {
+        setPromotionState(null);
+        return false;
+      }
+
+      const promotion = mapPromotionPiece(piece);
+      const move = chessRef.current.move({
+        from: promotionState.from,
+        to: promotionState.to,
+        promotion,
+      });
+
+      if (move) {
+        setFen(chessRef.current.fen());
+        setLastMoveSquares({ from: move.from, to: move.to });
+        setStatusMessage(`Последний ход: ${move.san}`);
+      }
+
+      setPromotionState(null);
+      return Boolean(move);
+    },
+    [promotionState],
+  );
+
+  const handlePromotionCheck = useCallback((sourceSquare: Square, targetSquare: Square, piece: string) => {
+    const needsPromotion = requiresPromotion(piece, targetSquare);
+    if (needsPromotion) {
+      setPromotionState({ from: sourceSquare, to: targetSquare, color: piece[0] as 'w' | 'b' });
+    }
+    return needsPromotion;
+  }, []);
 
   const undoLastMove = useCallback(() => {
     const undone = chessRef.current.undo();
@@ -125,6 +166,10 @@ export default function App() {
             position={fen}
             boardOrientation={orientation}
             onPieceDrop={handlePieceDrop}
+            onPromotionCheck={handlePromotionCheck}
+            onPromotionPieceSelect={handlePromotionPieceSelect}
+            promotionToSquare={promotionState?.to ?? null}
+            showPromotionDialog={Boolean(promotionState)}
             customBoardStyle={{ borderRadius: 18, boxShadow: '0 20px 45px rgba(15, 23, 42, 0.25)' }}
             customSquareStyles={highlightStyles}
             arePiecesDraggable
@@ -191,5 +236,20 @@ function determinePromotion(piece: string, targetSquare: string): 'q' | undefine
 
 function isSquare(value: string): value is Arrow[0] {
   return /^[a-h][1-8]$/.test(value);
+}
+
+function requiresPromotion(piece: string, targetSquare: string) {
+  const isPawn = piece.toLowerCase().endsWith('p');
+  const promotionRank = piece.startsWith('w') ? '8' : '1';
+  return isPawn && targetSquare.endsWith(promotionRank);
+}
+
+function mapPromotionPiece(piece: PromotionPieceOption) {
+  const symbol = piece[1]?.toLowerCase();
+  if (symbol === 'q' || symbol === 'r' || symbol === 'b' || symbol === 'n') {
+    return symbol;
+  }
+
+  return 'q';
 }
 
