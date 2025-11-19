@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Chess, Move } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
+import type { Arrow } from 'react-chessboard/dist/chessboard/types';
 import { useStockfishEngine } from './hooks/useStockfishEngine.ts';
 import { MoveList } from './components/MoveList.tsx';
 
@@ -10,6 +11,8 @@ const BOARD_SIZES = {
   desktop: 520,
   mobile: 360,
 };
+
+const ARROW_COLORS = ['#4ade80', '#facc15', '#fb7185'];
 
 export default function App() {
   const chessRef = useRef(new Chess());
@@ -78,6 +81,15 @@ export default function App() {
   const boardSize =
     typeof window === 'undefined' || window.innerWidth >= 768 ? BOARD_SIZES.desktop : BOARD_SIZES.mobile;
   const evaluationText = suggestions[0]?.score ?? '—';
+  const suggestionArrows = useMemo<Arrow[]>(() => {
+    return suggestions.slice(0, 3).flatMap((entry, index) => {
+      if (!entry.uci || entry.uci.length < 4) return [];
+      const from = entry.uci.slice(0, 2);
+      const to = entry.uci.slice(2, 4);
+      if (!isSquare(from) || !isSquare(to)) return [];
+      return [[from, to, ARROW_COLORS[index] ?? ARROW_COLORS[0]] as Arrow];
+    });
+  }, [suggestions]);
 
   return (
     <div className="page">
@@ -118,6 +130,7 @@ export default function App() {
             arePiecesDraggable
             animationDuration={200}
             boardWidth={boardSize}
+            customArrows={suggestionArrows}
           />
           <p className="status">{statusMessage}</p>
         </section>
@@ -174,5 +187,9 @@ function determinePromotion(piece: string, targetSquare: string): 'q' | undefine
   const isPawn = piece.toLowerCase().endsWith('p');
   const lastRank = targetSquare.endsWith('8') || targetSquare.endsWith('1');
   return isPawn && lastRank ? 'q' : undefined;
+}
+
+function isSquare(value: string): value is Arrow[0] {
+  return /^[a-h][1-8]$/.test(value);
 }
 
