@@ -9,3 +9,4 @@ declare module 'stockfish.wasm' {
   export default function Stockfish(moduleOverrides?: Record<string, unknown>): Promise<StockfishInstance>;
 }
 
+
