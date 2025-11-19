@@ -7,6 +7,7 @@ import { MoveList } from './components/MoveList.tsx';
 
 type BoardOrientation = 'white' | 'black';
 type PromotionState = { from: Square; to: Square; color: 'w' | 'b' } | null;
+type SyncStatus = 'idle' | 'connecting' | 'live' | 'error';
 
 const BOARD_SIZES = {
   desktop: 520,
@@ -22,6 +23,10 @@ export default function App() {
   const [lastMoveSquares, setLastMoveSquares] = useState<{ from: string; to: string } | null>(null);
   const [statusMessage, setStatusMessage] = useState('Играйте как обычно и дублируйте ходы на доске.');
   const [promotionState, setPromotionState] = useState<PromotionState>(null);
+  const [lichessLink, setLichessLink] = useState('');
+  const [syncedGameId, setSyncedGameId] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   const history = useMemo(() => chessRef.current.history({ verbose: true }) as Move[], [fen]);
   const { analyze, suggestions, isReady, error, depth, lastUpdated } = useStockfishEngine();
@@ -32,6 +37,10 @@ export default function App() {
 
   const handlePieceDrop = useCallback(
     (sourceSquare: string, targetSquare: string, piece: string) => {
+      if (syncedGameId) {
+        return false;
+      }
+
       if (requiresPromotion(piece, targetSquare)) {
         setPromotionState({ from: sourceSquare as Square, to: targetSquare as Square, color: piece[0] as 'w' | 'b' });
         return false;
@@ -52,7 +61,7 @@ export default function App() {
 
       return false;
     },
-    [],
+    [syncedGameId],
   );
 
   const handlePromotionPieceSelect = useCallback(
@@ -89,6 +98,27 @@ export default function App() {
     return needsPromotion;
   }, []);
 
+  const stopSync = useCallback(() => {
+    setSyncedGameId(null);
+    setSyncStatus('idle');
+    setSyncError(null);
+    setStatusMessage('Режим синхронизации отключён. Можно делать ходы вручную.');
+  }, []);
+
+  const startSync = useCallback(() => {
+    const id = extractGameId(lichessLink);
+    if (!id) {
+      setSyncError('Введите корректную ссылку на партию Lichess.');
+      setSyncStatus('error');
+      return;
+    }
+
+    setSyncedGameId(id);
+    setSyncStatus('connecting');
+    setSyncError(null);
+    setStatusMessage('Подключаемся к партии Lichess…');
+  }, [lichessLink]);
+
   const undoLastMove = useCallback(() => {
     const undone = chessRef.current.undo();
     if (undone) {
@@ -104,6 +134,55 @@ export default function App() {
     setLastMoveSquares(null);
     setStatusMessage('Доска очищена, можно начинать новую партию.');
   }, []);
+
+  useEffect(() => {
+    if (!syncedGameId) return;
+
+    let cancelled = false;
+    const controller = new AbortController();
+
+    const loadFromLichess = async () => {
+      try {
+        const response = await fetch(
+          `https://lichess.org/game/export/${syncedGameId}?moves=1&clocks=0&tags=0&evals=0&opening=0`,
+          {
+            headers: { Accept: 'application/x-chess-pgn' },
+            signal: controller.signal,
+          },
+        );
+
+        if (!response.ok) {
+          throw new Error('Не удалось получить данные партии. Убедитесь, что ссылка публичная.');
+        }
+
+        const pgn = await response.text();
+        const syncedChess = new Chess();
+        syncedChess.loadPgn(pgn);
+
+        if (!cancelled) {
+          chessRef.current = syncedChess;
+          setFen(syncedChess.fen());
+          const latest = syncedChess.history({ verbose: true }).at(-1);
+          setLastMoveSquares(latest ? { from: latest.from, to: latest.to } : null);
+          setStatusMessage(latest ? `Последний ход: ${latest.san}` : 'Партия началась, ждём ходы.');
+          setSyncStatus('live');
+        }
+      } catch (err) {
+        if (cancelled || controller.signal.aborted) return;
+        setSyncStatus('error');
+        setSyncError(err instanceof Error ? err.message : 'Ошибка синхронизации с Lichess.');
+      }
+    };
+
+    loadFromLichess();
+    const poller = window.setInterval(loadFromLichess, 4000);
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      window.clearInterval(poller);
+    };
+  }, [syncedGameId]);
 
   const highlightStyles = useMemo(() => {
     if (!lastMoveSquares) return {};
@@ -158,6 +237,34 @@ export default function App() {
             Сбросить доску
           </button>
         </div>
+        <div className="sync-panel">
+          <label className="control full">
+            <span>Ссылка на партию Lichess</span>
+            <input
+              type="text"
+              placeholder="https://lichess.org/abcd1234"
+              value={lichessLink}
+              onChange={(event) => setLichessLink(event.target.value)}
+            />
+          </label>
+          <div className="sync-actions">
+            <button type="button" onClick={startSync} disabled={!lichessLink}>
+              Подключить
+            </button>
+            {syncedGameId && (
+              <button type="button" className="ghost" onClick={stopSync}>
+                Отключить
+              </button>
+            )}
+            <span className={`sync-status ${syncStatus}`}>
+              {syncStatus === 'idle' && 'ожидание'}
+              {syncStatus === 'connecting' && 'подключение…'}
+              {syncStatus === 'live' && 'онлайн'}
+              {syncStatus === 'error' && 'ошибка'}
+            </span>
+          </div>
+          {syncError && <p className="error small">{syncError}</p>}
+        </div>
       </header>
 
       <main className="layout">
@@ -172,7 +279,7 @@ export default function App() {
             showPromotionDialog={Boolean(promotionState)}
             customBoardStyle={{ borderRadius: 18, boxShadow: '0 20px 45px rgba(15, 23, 42, 0.25)' }}
             customSquareStyles={highlightStyles}
-            arePiecesDraggable
+            arePiecesDraggable={!syncedGameId}
             animationDuration={200}
             boardWidth={boardSize}
             customArrows={suggestionArrows}
@@ -251,5 +358,18 @@ function mapPromotionPiece(piece: PromotionPieceOption) {
   }
 
   return 'q';
+}
+
+function extractGameId(rawLink: string) {
+  const trimmed = rawLink.trim();
+  if (!trimmed) return null;
+
+  const urlMatch = trimmed.match(/lichess\.org\/([A-Za-z0-9]{8,12})/i);
+  if (urlMatch) {
+    return urlMatch[1];
+  }
+
+  const plainMatch = trimmed.match(/^([A-Za-z0-9]{8,12})$/i);
+  return plainMatch ? plainMatch[1] : null;
 }
 
