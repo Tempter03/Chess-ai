@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Chess } from 'chess.js';
-import Stockfish, { type StockfishInstance } from 'stockfish.wasm';
+import Stockfish, { type StockfishInstance, type StockfishModuleOptions } from 'stockfish.wasm';
 
 export type Suggestion = {
   id: number;
@@ -41,8 +41,13 @@ export function useStockfishEngine() {
 
     const initEngine = async () => {
       try {
-        const createEngine = Stockfish as unknown as () => Promise<StockfishInstance>;
-        const engine = await createEngine();
+        const createEngine = Stockfish as unknown as (
+          options?: StockfishModuleOptions,
+        ) => Promise<StockfishInstance>;
+
+        const engine = await createEngine({
+          locateFile: (path: string) => `${import.meta.env.BASE_URL}stockfish/${path}`,
+        });
         if (cancelled) return;
 
         engineRef.current = engine;

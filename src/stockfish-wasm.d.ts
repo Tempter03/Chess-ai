@@ -6,7 +6,13 @@ declare module 'stockfish.wasm' {
     terminate(): void;
   };
 
-  export default function Stockfish(moduleOverrides?: Record<string, unknown>): Promise<StockfishInstance>;
+  export type StockfishModuleOptions = {
+    locateFile?: (path: string) => string;
+    wasmBinary?: ArrayBuffer;
+    [key: string]: unknown;
+  };
+
+  export default function Stockfish(options?: StockfishModuleOptions): Promise<StockfishInstance>;
 }
 
 
