@@ -1,8 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-const LICHESS_BASE =
-  'https://lichess.org/game/export/:id?moves=1&clocks=0&tags=0&evals=0&opening=0';
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const gameId = typeof req.query.game === 'string' ? req.query.game : undefined;
   if (!gameId) {
@@ -11,7 +8,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const targetUrl = LICHESS_BASE.replace(':id', encodeURIComponent(gameId));
+    const targetUrl = `https://lichess.org/game/export/${encodeURIComponent(gameId)}?moves=1&clocks=0&tags=0&evals=0&opening=0`;
     const response = await fetch(targetUrl, {
       headers: { Accept: 'application/x-chess-pgn' },
       cache: 'no-store',

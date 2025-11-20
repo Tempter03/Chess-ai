@@ -143,16 +143,15 @@ export default function App() {
 
     const loadFromLichess = async () => {
       try {
-        const response = await fetch(
-          `https://lichess.org/game/export/${syncedGameId}?moves=1&clocks=0&tags=0&evals=0&opening=0`,
-          {
-            headers: { Accept: 'application/x-chess-pgn' },
-            signal: controller.signal,
-          },
-        );
+        const response = await fetch(`/api/lichess?game=${encodeURIComponent(syncedGameId)}`, {
+          signal: controller.signal,
+        });
 
         if (!response.ok) {
-          throw new Error('Не удалось получить данные партии. Убедитесь, что ссылка публичная.');
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(
+            errorData.error || 'Не удалось получить данные партии. Убедитесь, что ссылка публичная.',
+          );
         }
 
         const pgn = await response.text();
