@@ -1,6 +1,4 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
-
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+module.exports = async function handler(req, res) {
   const gameId = typeof req.query.game === 'string' ? req.query.game : undefined;
   if (!gameId) {
     res.status(400).json({ error: 'Query parameter "game" is required.' });
@@ -28,5 +26,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .status(500)
       .json({ error: error instanceof Error ? error.message : 'Unexpected proxy error.' });
   }
-}
+};
 
